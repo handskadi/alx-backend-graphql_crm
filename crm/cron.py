@@ -1,26 +1,51 @@
+import os
 from datetime import datetime
-import requests
-
+from gql.transport.requests import RequestsHTTPTransport
+from gql import gql, Client
 
 def log_crm_heartbeat():
-    # Format timestamp
+    log_file = "/tmp/crm_heartbeat_log.txt"
     now = datetime.now().strftime("%d/%m/%Y-%H:%M:%S")
-
-    # Log heartbeat message
-    with open("/tmp/crm_heartbeat_log.txt", "a") as log_file:
-        log_file.write(f"{now} CRM is alive\n")
-
-    # OPTIONAL: Query GraphQL `hello` field
+    # Use gql to check GraphQL hello field
     try:
-        response = requests.post(
-            "http://localhost:8000/graphql",
-            json={"query": "{ hello }"},
-            timeout=5
-        )
-        if response.ok:
-            data = response.json()
-            print("GraphQL hello response:", data)
-        else:
-            print(f"GraphQL hello query failed: HTTP {response.status_code}")
+        transport = RequestsHTTPTransport(url="http://localhost:8000/graphql", verify=False)
+        client = Client(transport=transport, fetch_schema_from_transport=False)
+        query = gql('{ hello }')
+        result = client.execute(query)
+        hello = result.get("hello", "unavailable")
+        msg = f"{now} CRM is alive (hello: {hello})\n"
+    except Exception:
+        msg = f"{now} CRM is alive (GraphQL unreachable)\n"
+    with open(log_file, "a") as f:
+        f.write(msg)
+
+def update_low_stock():
+    log_file = "/tmp/low_stock_updates_log.txt"
+    now = datetime.now().strftime("%d/%m/%Y-%H:%M:%S")
+    try:
+        transport = RequestsHTTPTransport(url="http://localhost:8000/graphql", verify=False)
+        client = Client(transport=transport, fetch_schema_from_transport=False)
+        mutation = gql('''
+            mutation {
+                updateLowStockProducts {
+                    updatedProducts {
+                        name
+                        stock
+                    }
+                    success
+                    message
+                }
+            }
+        ''')
+        result = client.execute(mutation)
+        updates = result.get("updateLowStockProducts", {})
+        products = updates.get("updatedProducts", [])
+        msg = f"{now} Restocked products:\n"
+        for p in products:
+            msg += f"  - {p['name']}: new stock {p['stock']}\n"
+        if not products:
+            msg += "  (No products needed restocking)\n"
     except Exception as e:
-        print(f"GraphQL hello query error: {e}")
+        msg = f"{now} Error updating low stock: {e}\n"
+    with open(log_file, "a") as f:
+        f.write(msg)

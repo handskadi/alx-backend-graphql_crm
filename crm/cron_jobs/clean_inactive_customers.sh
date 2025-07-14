@@ -1,34 +1,19 @@
 #!/bin/bash
+# Script to delete customers with no orders in the past year and log the result
 
-# Get directory of current script
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Change to project root (assumes script is at crm/cron_jobs/)
-cd "$SCRIPT_DIR/../.."
-
-# Store current working directory
-CWD=$(pwd)
-
-# Timestamp and log file
-TIMESTAMP=$(date +"%Y-%m-%d %H:%M:%S")
 LOG_FILE="/tmp/customer_cleanup_log.txt"
+TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 
-# Ensure we're in the correct directory
-if [ -f "manage.py" ]; then
-  DELETED_COUNT=$(python manage.py shell <<EOF
-from datetime import timedelta
-from django.utils import timezone
-from crm.models import Customer
-
-cutoff = timezone.now() - timedelta(days=365)
-qs = Customer.objects.filter(order__isnull=True, created_at__lt=cutoff)
-count = qs.count()
-qs.delete()
-print(count)
-EOF
-  )
-
-  echo "$TIMESTAMP - Deleted $DELETED_COUNT inactive customers" >> "$LOG_FILE"
+# Get the directory of this script
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Move to project root (assume script is in crm/cron_jobs)
+cwd=$(pwd)
+if [[ "$cwd" != *"alx-backend-graphql_crm"* ]]; then
+    cd "$SCRIPT_DIR/../.."
 else
-  echo "$TIMESTAMP - ERROR: manage.py not found in cwd ($CWD)" >> "$LOG_FILE"
+    cd "$cwd"
 fi
+
+COUNT=$(python3 manage.py shell -c "from crm.models import Customer; from django.utils import timezone; from datetime import timedelta; cutoff = timezone.now() - timedelta(days=365); qs = Customer.objects.filter(orders__isnull=True) | Customer.objects.exclude(orders__order_date__gte=cutoff); to_delete = qs.distinct(); deleted = to_delete.count(); to_delete.delete(); print(deleted)")
+
+echo "$TIMESTAMP - Deleted $COUNT inactive customers" >> "$LOG_FILE"
