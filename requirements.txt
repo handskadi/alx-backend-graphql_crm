@@ -1,8 +1,4 @@
-Django
-graphene-django
-django-filter
 django-crontab==0.7.1
-gql[requests]
-requests
-celery
-django-celery-beat
+
+celery==5.3.1
+django-celery-beat==2.5.0

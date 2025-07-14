@@ -1,52 +1,46 @@
 #!/usr/bin/env python3
-import sys
+
+import datetime
+from gql import gql, Client
+from gql.transport.requests import RequestsHTTPTransport
+
 import os
-from datetime import datetime, timedelta
-import requests
+from datetime import datetime as dt
 
-try:
-    from gql import gql, Client
-    from gql.transport.requests import RequestsHTTPTransport
-except ImportError:
-    print("The 'gql' library is required. Install it with: pip install gql[requests]")
-    sys.exit(1)
+# Setup GraphQL client
+transport = RequestsHTTPTransport(
+    url="http://localhost:8000/graphql",
+    verify=False,
+    retries=3,
+)
 
-LOG_FILE = "/tmp/order_reminders_log.txt"
-GRAPHQL_ENDPOINT = "http://localhost:8000/graphql"
+client = Client(transport=transport, fetch_schema_from_transport=True)
 
-# Calculate date range for the last 7 days
-now = datetime.now()
-week_ago = now - timedelta(days=7)
+# Calculate 7 days ago
+seven_days_ago = (dt.now() - datetime.timedelta(days=7)).date()
 
-# GraphQL query for orders in the last week
-query = gql('''
-query($dateGte: DateTime!) {
-  orders(filter: {orderDateGte: $dateGte}) {
+# GraphQL query
+query = gql(f"""
+query {{
+  orders(orderDate_Gte: "{seven_days_ago}") {{
     id
-    orderDate
-    customer {
+    customer {{
       email
-    }
-  }
-}
-''')
-
-transport = RequestsHTTPTransport(url=GRAPHQL_ENDPOINT, verify=False)
-client = Client(transport=transport, fetch_schema_from_transport=False)
+    }}
+  }}
+}}
+""")
 
 try:
-    variables = {"dateGte": week_ago.isoformat()}
-    result = client.execute(query, variable_values=variables)
-    orders = result.get("orders", [])
+    response = client.execute(query)
+    orders = response.get("orders", [])
+
+    with open("/tmp/order_reminders_log.txt", "a") as log_file:
+        timestamp = dt.now().strftime("%Y-%m-%d %H:%M:%S")
+        for order in orders:
+            log_file.write(f"{timestamp} - Order ID: {order['id']}, Email: {order['customer']['email']}\n")
+
+    print("Order reminders processed!")
+
 except Exception as e:
-    print(f"GraphQL query failed: {e}")
-    sys.exit(1)
-
-with open(LOG_FILE, "a") as f:
-    timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
-    for order in orders:
-        order_id = order.get("id")
-        customer_email = order.get("customer", {}).get("email", "N/A")
-        f.write(f"{timestamp} - Order ID: {order_id}, Customer Email: {customer_email}\n")
-
-print("Order reminders processed!")
+    print(f"Error while processing reminders: {e}")

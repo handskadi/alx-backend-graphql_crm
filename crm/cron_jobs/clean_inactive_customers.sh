@@ -1,19 +1,30 @@
 #!/bin/bash
-# Script to delete customers with no orders in the past year and log the result
 
-LOG_FILE="/tmp/customer_cleanup_log.txt"
-TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
-
-# Get the directory of this script
+# Resolve the absolute path of the current script
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Move to project root (assume script is in crm/cron_jobs)
-cwd=$(pwd)
-if [[ "$cwd" != *"alx-backend-graphql_crm"* ]]; then
-    cd "$SCRIPT_DIR/../.."
+echo "Changing to project root from cwd: $SCRIPT_DIR"
+
+# Move to the root of the Django project (adjust if needed)
+cd "$SCRIPT_DIR/../.." || {
+    echo "Failed to change directory to project root"
+    exit 1
+}
+
+# Run the Django cleanup using manage.py shell
+DELETED_COUNT=$(python3 manage.py shell << END
+from crm.models import Customer
+from django.utils import timezone
+from datetime import timedelta
+
+cutoff = timezone.now() - timedelta(days=365)
+deleted, _ = Customer.objects.filter(last_order_date__lt=cutoff).delete()
+print(deleted)
+END
+)
+
+# Log with timestamp
+if [ -n "$DELETED_COUNT" ]; then
+    echo "$(date): Deleted $DELETED_COUNT inactive customers" >> /tmp/customer_cleanup_log.txt
 else
-    cd "$cwd"
+    echo "$(date): No customers deleted" >> /tmp/customer_cleanup_log.txt
 fi
-
-COUNT=$(python3 manage.py shell -c "from crm.models import Customer; from django.utils import timezone; from datetime import timedelta; cutoff = timezone.now() - timedelta(days=365); qs = Customer.objects.filter(orders__isnull=True) | Customer.objects.exclude(orders__order_date__gte=cutoff); to_delete = qs.distinct(); deleted = to_delete.count(); to_delete.delete(); print(deleted)")
-
-echo "$TIMESTAMP - Deleted $COUNT inactive customers" >> "$LOG_FILE"
