@@ -39,7 +39,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'graphene_django',
     'crm',
-    "django-crontab",
+    "django_crontab",
 ]
 
 MIDDLEWARE = [
